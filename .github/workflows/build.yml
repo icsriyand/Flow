@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Nama Tag Versi (misal: v1.0.0)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -52,9 +57,24 @@ jobs:
           cp app/build/outputs/apk/github/release/*armeabi-v7a*.apk release-apks/flow-armv7.apk
           cp app/build/outputs/apk/foss/release/*armeabi-v7a*.apk release-apks/flow-foss-armv7.apk
 
+      # Menentukan nama tag otomatis jika dijalankan manual
+      - name: Set Release Tag
+        id: release_tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v$(date +'%Y.%m.%d-%H%M')"
+          fi
+          echo "TAG_NAME=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_tag.outputs.TAG_NAME }}
+          name: Flow ${{ steps.release_tag.outputs.TAG_NAME }}
           files: release-apks/*.apk
           generate_release_notes: true
           draft: false
