@@ -8,7 +8,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -27,9 +26,6 @@ import androidx.compose.ui.focus.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -93,11 +89,10 @@ fun SearchScreen(
         )
     }
     var isSearchFocused by remember { mutableStateOf(false) }
-    var showSuggestions by remember { mutableStateOf(false) }
     val isGridMode by preferences.searchIsGridMode.collectAsState(initial = false)
     val shortsContentEnabled by preferences.shortsContentEnabled.collectAsState(initial = true)
 
-    var hasPerformedSearch by rememberSaveable { mutableStateOf(viewModel.uiState.value.query.isNotBlank()) }
+    var hasPerformedSearch by rememberSaveable { mutableStateOf(false) }
     var isNavigatingAway by remember { mutableStateOf(false) }
 
     val searchHistory by searchHistoryRepo
@@ -146,23 +141,9 @@ fun SearchScreen(
     val dismissKeyboard: () -> Unit =
         remember(focusManager, keyboardController) {
             {
-                showSuggestions = false
-                isSearchFocused = false
-                liveSuggestions = emptyList()
                 focusManager.clearFocus(force = true)
                 keyboardController?.hide()
-            }
-        }
-
-    val nestedScrollConnection =
-        remember(dismissKeyboard) {
-            object : NestedScrollConnection {
-                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                    if (available.y != 0f) {
-                        dismissKeyboard()
-                    }
-                    return Offset.Zero
-                }
+                isSearchFocused = false
             }
         }
 
@@ -183,7 +164,6 @@ fun SearchScreen(
                         ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
                         ?.firstOrNull()
                 if (!spokenText.isNullOrBlank()) {
-                    hasPerformedSearch = true
                     setSearchQueryToEnd(spokenText)
                     dismissKeyboard()
                     viewModel.search(spokenText)
@@ -246,37 +226,30 @@ fun SearchScreen(
         }
 
     LaunchedEffect(Unit) {
-        if (!hasPerformedSearch && searchQuery.text.isEmpty()) {
+        if (!hasPerformedSearch) {
             delay(200)
             try {
                 focusRequester.requestFocus()
                 keyboardController?.show()
-                isSearchFocused = true
-                showSuggestions = true
             } catch (_: Exception) {
             }
         }
     }
 
-    LaunchedEffect(gridState.isScrollInProgress, listState.isScrollInProgress) {
-        if (gridState.isScrollInProgress || listState.isScrollInProgress) {
-            dismissKeyboard()
-        }
-    }
-
     LaunchedEffect(isNavigatingAway) {
         if (isNavigatingAway) {
-            repeat(3) {
-                delay(60)
-                dismissKeyboard()
+            repeat(5) {
+                delay(80)
+                keyboardController?.hide()
+                focusManager.clearFocus(force = true)
             }
             isNavigatingAway = false
         }
     }
 
-    LaunchedEffect(searchQuery.text, showSuggestions) {
-        val queryText = searchQuery.text.trim()
-        if (queryText.length >= 2 && showSuggestions && suggestionsEnabled) {
+    LaunchedEffect(searchQuery, isSearchFocused) {
+        val queryText = searchQuery.text
+        if (queryText.length >= 2 && isSearchFocused && suggestionsEnabled) {
             isLoadingSuggestions = true
             delay(280)
             try {
@@ -298,6 +271,12 @@ fun SearchScreen(
         }
         if (!isSearchFocused && searchQuery.text != uiState.query) {
             setSearchQueryToEnd(uiState.query)
+        }
+    }
+
+    LaunchedEffect(isSearchFocused) {
+        if (isSearchFocused) {
+            keyboardController?.show()
         }
     }
 
@@ -328,14 +307,13 @@ fun SearchScreen(
             onQueryChange = {
                 if (!isNavigatingAway) {
                     searchQuery = it
-                    showSuggestions = true
                 }
             },
             onSearch = {
-                val queryText = searchQuery.text.trim()
+                val queryText = searchQuery.text
                 if (queryText.isNotBlank()) {
-                    hasPerformedSearch = true
                     dismissKeyboard()
+                    liveSuggestions = emptyList()
 
                     val videoId = extractVideoId(queryText)
                     if (videoId != null) {
@@ -360,7 +338,7 @@ fun SearchScreen(
             },
             onClear = {
                 setSearchQueryToEnd("")
-                dismissKeyboard()
+                liveSuggestions = emptyList()
                 viewModel.clearSearch()
             },
             onVoiceSearch = launchVoiceSearch,
@@ -368,18 +346,6 @@ fun SearchScreen(
             onFocusChange = { focused ->
                 if (isNavigatingAway) return@SearchBarRow
                 isSearchFocused = focused
-                if (focused) {
-                    showSuggestions = true
-                }
-            },
-            onSearchBarClick = {
-                isSearchFocused = true
-                showSuggestions = true
-                try {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
-                } catch (_: Exception) {
-                }
             },
             focusRequester = focusRequester,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -387,7 +353,7 @@ fun SearchScreen(
 
         AnimatedVisibility(
             visible =
-                showSuggestions && isSearchFocused && searchQuery.text.isNotBlank() &&
+                isSearchFocused && searchQuery.text.isNotEmpty() &&
                     (orderedSuggestions.isNotEmpty() || isLoadingSuggestions),
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
@@ -397,9 +363,9 @@ fun SearchScreen(
                 suggestions = orderedSuggestions,
                 isLoading = isLoadingSuggestions,
                 onSuggestionClick = { s ->
-                    hasPerformedSearch = true
-                    setSearchQueryToEnd(s)
                     dismissKeyboard()
+                    setSearchQueryToEnd(s)
+                    liveSuggestions = emptyList()
 
                     val videoId = extractVideoId(s)
                     if (videoId != null) {
@@ -431,9 +397,8 @@ fun SearchScreen(
             DiscoverScreen(
                 searchHistory = searchHistory,
                 onHistoryClick = { q ->
-                    hasPerformedSearch = true
-                    setSearchQueryToEnd(q)
                     dismissKeyboard()
+                    setSearchQueryToEnd(q)
                     viewModel.search(q)
                 },
                 onHistoryDelete = { item ->
@@ -475,12 +440,7 @@ fun SearchScreen(
             val isInitialError =
                 pagingItems.loadState.refresh is LoadState.Error && pagingItems.itemCount == 0
 
-            BoxWithConstraints(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .nestedScroll(nestedScrollConnection),
-            ) {
+            BoxWithConstraints(modifier = Modifier.weight(1f)) {
                 val responsiveColumns =
                     when {
                         maxWidth < 700.dp -> 1
@@ -590,7 +550,6 @@ private fun SearchBarRow(
     onVoiceSearch: () -> Unit,
     isSearchFocused: Boolean,
     onFocusChange: (Boolean) -> Unit,
-    onSearchBarClick: () -> Unit,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
@@ -600,6 +559,7 @@ private fun SearchBarRow(
         label = "focus",
     )
     val primary = MaterialTheme.colorScheme.primary
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Box(
         modifier =
@@ -635,9 +595,15 @@ private fun SearchBarRow(
                     shape = RoundedCornerShape(23.dp),
                 ).clickable(
                     indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onSearchBarClick,
-                ),
+                    interactionSource =
+                        remember {
+                            androidx.compose.foundation.interaction
+                                .MutableInteractionSource()
+                        },
+                ) {
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
+                },
     ) {
         Row(
             modifier =
@@ -989,6 +955,7 @@ private fun searchItemKey(
         null -> "placeholder_$index"
     }
 
+/** Lets the grid reuse an item's composition when a slot is filled by another item of the same kind. */
 private fun searchItemContentType(item: SearchResultItem?): Any =
     when (item) {
         is SearchResultItem.VideoResult -> "video"
@@ -1227,6 +1194,7 @@ private fun loadedShorts(pagingItems: androidx.paging.compose.LazyPagingItems<Se
         (pagingItems.peek(it) as? SearchResultItem.VideoResult)?.video
     }
 
+/** Shorts tab: a portrait grid of [ShortsCard]s. */
 @Composable
 private fun SearchShortsGrid(
     pagingItems: androidx.paging.compose.LazyPagingItems<SearchResultItem>,
