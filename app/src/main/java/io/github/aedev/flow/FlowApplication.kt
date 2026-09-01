@@ -3,6 +3,7 @@ package io.github.aedev.flow
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -78,14 +79,20 @@ class FlowApplication :
         super.onCreate()
         appContext = applicationContext
 
+        // Direct TLS/SSL injection via Conscrypt for Android 7.1.1 (API 25) and lower.
+        // Placed at the top to ensure all HTTP network calls (Discord, NewPipe, YouTube) work properly.
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
+            try {
+                Security.insertProviderAt(Conscrypt.newProvider(), 1)
+                Log.d(TAG, "Conscrypt Security Provider installed for Android 7.x compatibility")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to install Conscrypt Provider", e)
+            }
+        }
+
         DiscordPresenceRuntime.initialize(this, okHttpClient)
 
         val playerPreferences = PlayerPreferences(this)
-
-        // Injects modern TLS/SSL certificates so OkHttp and Ktor don't crash
-        if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.N_MR1) {
-            Security.insertProviderAt(Conscrypt.newProvider(), 1)
-        }
 
         // Install crash handler for real-time monitoring
         FlowCrashHandler.install(this)
@@ -116,19 +123,9 @@ class FlowApplication :
 
         PipePipeNsigDecoder.initialize(this)
 
-        // Initialize notification channels
+        // Initialize notification channels (Handled with API SDK checks inside NotificationHelper)
         NotificationHelper.createNotificationChannels(this)
         Log.d(TAG, "Notification channels created")
-
-        /*
-        try {
-            // Initialize YoutubeDL
-            com.yausername.youtubedl_android.YoutubeDL.getInstance().init(this)
-            Log.d(TAG, "YoutubeDL initialized")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize YoutubeDL", e)
-        }
-         */
 
         // Schedule periodic subscription checks for new videos
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -148,16 +145,10 @@ class FlowApplication :
         Log.d(TAG, "Workers scheduled successfully")
 
         // Fetch and cache visitor data for the lifetime of the install.
-        // The X-Goog-Visitor-Id header prevents YouTube from returning empty
-        // search results on tablets and fresh Android 16 installs (Issue #223).
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             var nsigWarmed = false
             playerPreferences.proxyConfig.collectLatest { proxyConfig ->
                 applyProxyConfig(proxyConfig)
-                // Ordered after the first proxy application so the warm-up honours it. Resolving
-                // the remote n-decoder player id is a round trip that the first video of a session
-                // would otherwise pay on its path to first frame; it is persisted for 24h, so on
-                // most launches this is only a disk read.
                 if (!nsigWarmed) {
                     nsigWarmed = true
                     PipePipeNsigDecoder.warmUp()
@@ -284,7 +275,6 @@ class FlowApplication :
     override fun onTerminate() {
         DiscordPresenceRuntime.shutdown()
         super.onTerminate()
-        // Clean up performance dispatcher resources
         PerformanceDispatcher.shutdown()
     }
 
