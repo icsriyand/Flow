@@ -17,7 +17,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.aedev.flow"
-        minSdk = 26
+        minSdk = 24 // Diubah ke 24 untuk mendukung Android 7.0
         targetSdk = 36
         versionCode = 18
         versionName = "2.2.1"
