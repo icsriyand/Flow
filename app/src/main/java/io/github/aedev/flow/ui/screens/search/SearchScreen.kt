@@ -8,6 +8,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -92,10 +93,11 @@ fun SearchScreen(
         )
     }
     var isSearchFocused by remember { mutableStateOf(false) }
+    var showSuggestions by remember { mutableStateOf(false) }
     val isGridMode by preferences.searchIsGridMode.collectAsState(initial = false)
     val shortsContentEnabled by preferences.shortsContentEnabled.collectAsState(initial = true)
 
-    var hasPerformedSearch by rememberSaveable { mutableStateOf(false) }
+    var hasPerformedSearch by rememberSaveable { mutableStateOf(viewModel.uiState.value.query.isNotBlank()) }
     var isNavigatingAway by remember { mutableStateOf(false) }
 
     val searchHistory by searchHistoryRepo
@@ -144,7 +146,9 @@ fun SearchScreen(
     val dismissKeyboard: () -> Unit =
         remember(focusManager, keyboardController) {
             {
+                showSuggestions = false
                 isSearchFocused = false
+                liveSuggestions = emptyList()
                 focusManager.clearFocus(force = true)
                 keyboardController?.hide()
             }
@@ -154,7 +158,7 @@ fun SearchScreen(
         remember(dismissKeyboard) {
             object : NestedScrollConnection {
                 override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                    if (isSearchFocused) {
+                    if (available.y != 0f) {
                         dismissKeyboard()
                     }
                     return Offset.Zero
@@ -242,11 +246,13 @@ fun SearchScreen(
         }
 
     LaunchedEffect(Unit) {
-        if (!hasPerformedSearch) {
+        if (!hasPerformedSearch && searchQuery.text.isEmpty()) {
             delay(200)
             try {
                 focusRequester.requestFocus()
                 keyboardController?.show()
+                isSearchFocused = true
+                showSuggestions = true
             } catch (_: Exception) {
             }
         }
@@ -260,18 +266,17 @@ fun SearchScreen(
 
     LaunchedEffect(isNavigatingAway) {
         if (isNavigatingAway) {
-            repeat(5) {
-                delay(80)
-                keyboardController?.hide()
-                focusManager.clearFocus(force = true)
+            repeat(3) {
+                delay(60)
+                dismissKeyboard()
             }
             isNavigatingAway = false
         }
     }
 
-    LaunchedEffect(searchQuery, isSearchFocused) {
-        val queryText = searchQuery.text
-        if (queryText.length >= 2 && isSearchFocused && suggestionsEnabled) {
+    LaunchedEffect(searchQuery.text, showSuggestions) {
+        val queryText = searchQuery.text.trim()
+        if (queryText.length >= 2 && showSuggestions && suggestionsEnabled) {
             isLoadingSuggestions = true
             delay(280)
             try {
@@ -293,12 +298,6 @@ fun SearchScreen(
         }
         if (!isSearchFocused && searchQuery.text != uiState.query) {
             setSearchQueryToEnd(uiState.query)
-        }
-    }
-
-    LaunchedEffect(isSearchFocused) {
-        if (isSearchFocused) {
-            keyboardController?.show()
         }
     }
 
@@ -329,14 +328,14 @@ fun SearchScreen(
             onQueryChange = {
                 if (!isNavigatingAway) {
                     searchQuery = it
+                    showSuggestions = true
                 }
             },
             onSearch = {
-                val queryText = searchQuery.text
+                val queryText = searchQuery.text.trim()
                 if (queryText.isNotBlank()) {
                     hasPerformedSearch = true
                     dismissKeyboard()
-                    liveSuggestions = emptyList()
 
                     val videoId = extractVideoId(queryText)
                     if (videoId != null) {
@@ -361,7 +360,7 @@ fun SearchScreen(
             },
             onClear = {
                 setSearchQueryToEnd("")
-                liveSuggestions = emptyList()
+                dismissKeyboard()
                 viewModel.clearSearch()
             },
             onVoiceSearch = launchVoiceSearch,
@@ -369,6 +368,18 @@ fun SearchScreen(
             onFocusChange = { focused ->
                 if (isNavigatingAway) return@SearchBarRow
                 isSearchFocused = focused
+                if (focused) {
+                    showSuggestions = true
+                }
+            },
+            onSearchBarClick = {
+                isSearchFocused = true
+                showSuggestions = true
+                try {
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
+                } catch (_: Exception) {
+                }
             },
             focusRequester = focusRequester,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -376,7 +387,7 @@ fun SearchScreen(
 
         AnimatedVisibility(
             visible =
-                isSearchFocused && searchQuery.text.isNotEmpty() &&
+                showSuggestions && isSearchFocused && searchQuery.text.isNotBlank() &&
                     (orderedSuggestions.isNotEmpty() || isLoadingSuggestions),
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
@@ -387,9 +398,8 @@ fun SearchScreen(
                 isLoading = isLoadingSuggestions,
                 onSuggestionClick = { s ->
                     hasPerformedSearch = true
-                    dismissKeyboard()
                     setSearchQueryToEnd(s)
-                    liveSuggestions = emptyList()
+                    dismissKeyboard()
 
                     val videoId = extractVideoId(s)
                     if (videoId != null) {
@@ -422,8 +432,8 @@ fun SearchScreen(
                 searchHistory = searchHistory,
                 onHistoryClick = { q ->
                     hasPerformedSearch = true
-                    dismissKeyboard()
                     setSearchQueryToEnd(q)
+                    dismissKeyboard()
                     viewModel.search(q)
                 },
                 onHistoryDelete = { item ->
@@ -580,6 +590,7 @@ private fun SearchBarRow(
     onVoiceSearch: () -> Unit,
     isSearchFocused: Boolean,
     onFocusChange: (Boolean) -> Unit,
+    onSearchBarClick: () -> Unit,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
@@ -589,7 +600,6 @@ private fun SearchBarRow(
         label = "focus",
     )
     val primary = MaterialTheme.colorScheme.primary
-    val keyboardController = LocalSoftwareKeyboardController.current
 
     Box(
         modifier =
@@ -625,15 +635,9 @@ private fun SearchBarRow(
                     shape = RoundedCornerShape(23.dp),
                 ).clickable(
                     indication = null,
-                    interactionSource =
-                        remember {
-                            androidx.compose.foundation.interaction
-                                .MutableInteractionSource()
-                        },
-                ) {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
-                },
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = onSearchBarClick,
+                ),
     ) {
         Row(
             modifier =
