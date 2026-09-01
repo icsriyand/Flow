@@ -26,6 +26,9 @@ import androidx.compose.ui.focus.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -141,9 +144,21 @@ fun SearchScreen(
     val dismissKeyboard: () -> Unit =
         remember(focusManager, keyboardController) {
             {
+                isSearchFocused = false
                 focusManager.clearFocus(force = true)
                 keyboardController?.hide()
-                isSearchFocused = false
+            }
+        }
+
+    val nestedScrollConnection =
+        remember(dismissKeyboard) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (isSearchFocused) {
+                        dismissKeyboard()
+                    }
+                    return Offset.Zero
+                }
             }
         }
 
@@ -164,6 +179,7 @@ fun SearchScreen(
                         ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
                         ?.firstOrNull()
                 if (!spokenText.isNullOrBlank()) {
+                    hasPerformedSearch = true
                     setSearchQueryToEnd(spokenText)
                     dismissKeyboard()
                     viewModel.search(spokenText)
@@ -233,6 +249,12 @@ fun SearchScreen(
                 keyboardController?.show()
             } catch (_: Exception) {
             }
+        }
+    }
+
+    LaunchedEffect(gridState.isScrollInProgress, listState.isScrollInProgress) {
+        if (gridState.isScrollInProgress || listState.isScrollInProgress) {
+            dismissKeyboard()
         }
     }
 
@@ -312,6 +334,7 @@ fun SearchScreen(
             onSearch = {
                 val queryText = searchQuery.text
                 if (queryText.isNotBlank()) {
+                    hasPerformedSearch = true
                     dismissKeyboard()
                     liveSuggestions = emptyList()
 
@@ -363,6 +386,7 @@ fun SearchScreen(
                 suggestions = orderedSuggestions,
                 isLoading = isLoadingSuggestions,
                 onSuggestionClick = { s ->
+                    hasPerformedSearch = true
                     dismissKeyboard()
                     setSearchQueryToEnd(s)
                     liveSuggestions = emptyList()
@@ -397,6 +421,7 @@ fun SearchScreen(
             DiscoverScreen(
                 searchHistory = searchHistory,
                 onHistoryClick = { q ->
+                    hasPerformedSearch = true
                     dismissKeyboard()
                     setSearchQueryToEnd(q)
                     viewModel.search(q)
@@ -440,7 +465,12 @@ fun SearchScreen(
             val isInitialError =
                 pagingItems.loadState.refresh is LoadState.Error && pagingItems.itemCount == 0
 
-            BoxWithConstraints(modifier = Modifier.weight(1f)) {
+            BoxWithConstraints(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .nestedScroll(nestedScrollConnection),
+            ) {
                 val responsiveColumns =
                     when {
                         maxWidth < 700.dp -> 1
@@ -955,7 +985,6 @@ private fun searchItemKey(
         null -> "placeholder_$index"
     }
 
-/** Lets the grid reuse an item's composition when a slot is filled by another item of the same kind. */
 private fun searchItemContentType(item: SearchResultItem?): Any =
     when (item) {
         is SearchResultItem.VideoResult -> "video"
@@ -1194,7 +1223,6 @@ private fun loadedShorts(pagingItems: androidx.paging.compose.LazyPagingItems<Se
         (pagingItems.peek(it) as? SearchResultItem.VideoResult)?.video
     }
 
-/** Shorts tab: a portrait grid of [ShortsCard]s. */
 @Composable
 private fun SearchShortsGrid(
     pagingItems: androidx.paging.compose.LazyPagingItems<SearchResultItem>,
