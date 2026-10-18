@@ -55,7 +55,10 @@ android {
 
     defaultConfig {
         applicationId = "io.github.aedev.flow"
-        minSdk = 26
+        
+        // DIUBAH KE 24 AGAR MENDUKUNG ANDROID 7.0 (Nougat)
+        minSdk = 24
+        
         targetSdk = 36
         versionCode = 19
         versionName = "3.0.0"
@@ -194,7 +197,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-        isCoreLibraryDesugaringEnabled = true // Enable desugaring
+        isCoreLibraryDesugaringEnabled = true // Enable desugaring (Penting untuk Android < 8.0)
     }
 
     packaging {
@@ -343,7 +346,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.gson)
 
-    // conscrypt for OkHttp TLS support on older Android versions
+    // conscrypt for OkHttp TLS support on older Android versions (Sangat penting untuk Android 7)
     implementation(libs.conscrypt.android)
 
     // --- Media Playback ---
@@ -365,7 +368,6 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.datastore.preferences)
-    // implementation(libs.androidx.datastore) // In TOML if needed
 
     // --- Home-screen widgets (Jetpack Glance) ---
     implementation(libs.androidx.glance.appwidget)
@@ -383,15 +385,11 @@ dependencies {
     implementation(libs.re2j)
 
     // --- Baseline profiles ---
-    // Runtime installer for the merged baseline profile. AGP merges profiles shipped inside
-    // library AARs (Compose, RecyclerView, ...) at build time; this applies them at runtime,
-    // which matters for sideloaded/F-Droid installs that bypass Play's cloud profiles.
     implementation(libs.androidx.profileinstaller)
-    // Trace sections the startup and Home benchmarks measure (#1301); already on the classpath through Compose.
     implementation(libs.androidx.tracing)
     baselineProfile(project(":benchmark"))
 
-    // Desugaring for older Android versions
+    // Desugaring for older Android versions (Sudah aktif dan mendukung minSdk 24)
     coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
 
     // --- Testing ---
@@ -405,14 +403,12 @@ dependencies {
     testImplementation(libs.hilt.android.testing)
     kspTest(libs.hilt.android.compiler)
 
-    // Compose UI tests in the JVM (Robolectric) so CI's unit-test task covers them
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.ui.test.junit4)
 
-    // Room migration tests (device-sync schema 20→23)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -425,7 +421,6 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 
-// Allow references to generated code
 ksp {
     arg("dagger.fastInit", "enabled")
 }
