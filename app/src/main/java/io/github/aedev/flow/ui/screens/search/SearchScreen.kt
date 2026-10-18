@@ -327,6 +327,7 @@ fun SearchScreen(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
 
+        // Perilaku sugesti dikontrol agar stabil di Android 7
         if (isSearchFocused && searchQuery.text.isNotEmpty() && (orderedSuggestions.isNotEmpty() || isLoadingSuggestions)) {
             SuggestionsCard(
                 query = searchQuery.text,
@@ -685,7 +686,7 @@ private fun SearchFiltersBar(
             ContentType.CHANNELS to R.string.channels_header,
             ContentType.PLAYLISTS to R.string.tab_playlists,
             ContentType.LIVE to R.string.tab_live,
-        ).filterNot { pair -> pair.first == ContentType.SHORTS && !shortsEnabled }
+        ).filterNot { (type, _) -> type == ContentType.SHORTS && !shortsEnabled }
 
     val durationLabels =
         listOf(
@@ -729,8 +730,7 @@ private fun SearchFiltersBar(
                         selected = selectedContentType != ContentType.ALL,
                         onClick = { typeExpanded = true },
                         label = {
-                            val labelRes = typeLabels.firstOrNull { it.first == selectedContentType }?.second ?: R.string.search_filter_all
-                            Text(stringResource(labelRes))
+                            Text(stringResource(typeLabels.firstOrNull { it.first == selectedContentType }?.second ?: R.string.search_filter_all))
                         },
                         leadingIcon = {
                             Icon(Icons.Default.FilterList, null, Modifier.size(16.dp))
@@ -743,9 +743,7 @@ private fun SearchFiltersBar(
                         expanded = typeExpanded,
                         onDismissRequest = { typeExpanded = false },
                     ) {
-                        typeLabels.forEach { pair ->
-                            val type = pair.first
-                            val labelRes = pair.second
+                        typeLabels.forEach { (type, labelRes) ->
                             DropdownMenuItem(
                                 text = { Text(stringResource(labelRes)) },
                                 leadingIcon =
@@ -772,8 +770,7 @@ private fun SearchFiltersBar(
                             selected = selectedDuration != Duration.ANY,
                             onClick = { durationExpanded = true },
                             label = {
-                                val labelRes = durationLabels.firstOrNull { it.first == selectedDuration }?.second ?: R.string.duration_any
-                                Text(stringResource(labelRes))
+                                Text(stringResource(durationLabels.firstOrNull { it.first == selectedDuration }?.second ?: R.string.duration_any))
                             },
                             trailingIcon = {
                                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
@@ -783,9 +780,7 @@ private fun SearchFiltersBar(
                             expanded = durationExpanded,
                             onDismissRequest = { durationExpanded = false },
                         ) {
-                            durationLabels.forEach { pair ->
-                                val dur = pair.first
-                                val labelRes = pair.second
+                            durationLabels.forEach { (dur, labelRes) ->
                                 DropdownMenuItem(
                                     text = { Text(stringResource(labelRes)) },
                                     leadingIcon =
@@ -811,8 +806,7 @@ private fun SearchFiltersBar(
                             selected = selectedUploadDate != UploadDate.ANY,
                             onClick = { dateExpanded = true },
                             label = {
-                                val labelRes = uploadDateLabels.firstOrNull { it.first == selectedUploadDate }?.second ?: R.string.date_any
-                                Text(stringResource(labelRes))
+                                Text(stringResource(uploadDateLabels.firstOrNull { it.first == selectedUploadDate }?.second ?: R.string.date_any))
                             },
                             trailingIcon = {
                                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
@@ -822,9 +816,7 @@ private fun SearchFiltersBar(
                             expanded = dateExpanded,
                             onDismissRequest = { dateExpanded = false },
                         ) {
-                            uploadDateLabels.forEach { pair ->
-                                val date = pair.first
-                                val labelRes = pair.second
+                            uploadDateLabels.forEach { (date, labelRes) ->
                                 DropdownMenuItem(
                                     text = { Text(stringResource(labelRes)) },
                                     leadingIcon =
@@ -849,8 +841,7 @@ private fun SearchFiltersBar(
                             selected = selectedSortType != SortType.RELEVANCE,
                             onClick = { sortExpanded = true },
                             label = {
-                                val labelRes = sortTypeLabels.firstOrNull { it.first == selectedSortType }?.second ?: R.string.sort_relevance
-                                Text(stringResource(labelRes))
+                                Text(stringResource(sortTypeLabels.firstOrNull { it.first == selectedSortType }?.second ?: R.string.sort_relevance))
                             },
                             trailingIcon = {
                                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
@@ -860,9 +851,7 @@ private fun SearchFiltersBar(
                             expanded = sortExpanded,
                             onDismissRequest = { sortExpanded = false },
                         ) {
-                            sortTypeLabels.forEach { pair ->
-                                val sort = pair.first
-                                val labelRes = pair.second
+                            sortTypeLabels.forEach { (sort, labelRes) ->
                                 DropdownMenuItem(
                                     text = { Text(stringResource(labelRes)) },
                                     leadingIcon =
@@ -912,6 +901,7 @@ private fun searchItemKey(
         is SearchResultItem.ChannelResult -> "c_${item.channel.id}"
         is SearchResultItem.PlaylistResult -> "p_${item.playlist.id}"
         is SearchResultItem.ShortsShelfResult -> SHORTS_SHELF_KEY
+        is SearchResultItem.ShelfResult -> "shelf_${item.title}"
         null -> "placeholder_$index"
     }
 
@@ -921,6 +911,7 @@ private fun searchItemContentType(item: SearchResultItem?): Any =
         is SearchResultItem.ChannelResult -> "channel"
         is SearchResultItem.PlaylistResult -> "playlist"
         is SearchResultItem.ShortsShelfResult -> SHORTS_SHELF_KEY
+        is SearchResultItem.ShelfResult -> "shelf"
         null -> "placeholder"
     }
 
@@ -965,10 +956,9 @@ private fun SearchResultList(
             key = { i -> searchItemKey(pagingItems.peek(i), i) },
             contentType = { i -> searchItemContentType(pagingItems.peek(i)) },
             span = { i ->
-                if (pagingItems.peek(i) is SearchResultItem.ShortsShelfResult) {
-                    GridItemSpan(maxLineSpan)
-                } else {
-                    GridItemSpan(1)
+                when (pagingItems.peek(i)) {
+                    is SearchResultItem.ShortsShelfResult, is SearchResultItem.ShelfResult -> GridItemSpan(maxLineSpan)
+                    else -> GridItemSpan(1)
                 }
             },
         ) { i ->
@@ -1003,6 +993,8 @@ private fun SearchResultList(
                 is SearchResultItem.ShortsShelfResult -> {
                     ShortsShelf(shorts = item.shorts, onShortClick = onShortsShelfClick)
                 }
+
+                is SearchResultItem.ShelfResult -> {}
 
                 null -> {}
             }
@@ -1053,10 +1045,9 @@ private fun SearchResultGrid(
             key = { i -> searchItemKey(pagingItems.peek(i), i) },
             contentType = { i -> searchItemContentType(pagingItems.peek(i)) },
             span = { i ->
-                if (pagingItems.peek(i) is SearchResultItem.ShortsShelfResult) {
-                    GridItemSpan(maxLineSpan)
-                } else {
-                    GridItemSpan(1)
+                when (pagingItems.peek(i)) {
+                    is SearchResultItem.ShortsShelfResult, is SearchResultItem.ShelfResult -> GridItemSpan(maxLineSpan)
+                    else -> GridItemSpan(1)
                 }
             },
         ) { i ->
@@ -1090,6 +1081,8 @@ private fun SearchResultGrid(
                 is SearchResultItem.ShortsShelfResult -> {
                     ShortsShelf(shorts = item.shorts, onShortClick = onShortsShelfClick)
                 }
+
+                is SearchResultItem.ShelfResult -> {}
 
                 null -> {}
             }
