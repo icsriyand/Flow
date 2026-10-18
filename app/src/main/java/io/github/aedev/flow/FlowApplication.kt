@@ -3,7 +3,9 @@ package io.github.aedev.flow
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.os.Build
 import android.util.Log
+import androidx.appcompat.app.AppCompatDelegate
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -89,23 +91,33 @@ class FlowApplication :
     override fun onCreate() {
         super.onCreate()
         appContext = applicationContext
+
+        // PENTING: Untuk Android 7 (API 24), VectorDrawable di dalam XML terkadang butuh compatibility flag dinyalakan
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
+            AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)
+        }
+
         YouTube.cacheDirectory = cacheDir.resolve("innertube_http_cache")
 
         DiscordPresenceRuntime.initialize(this, okHttpClient)
 
         val playerPreferences = PlayerPreferences(this)
 
-        // Injects modern TLS/SSL certificates so OkHttp and Ktor don't crash
-        if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.N_MR1) {
-            Security.insertProviderAt(Conscrypt.newProvider(), 1)
+        // Injects modern TLS/SSL certificates so OkHttp and Ktor don't crash on Android 7
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
+            try {
+                Security.insertProviderAt(Conscrypt.newProvider(), 1)
+                Log.d(TAG, "Conscrypt security provider successfully inserted for Android 7")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to insert Conscrypt provider", e)
+            }
         }
 
         // Install crash handler for real-time monitoring
         FlowCrashHandler.install(this)
 
         try {
-            // Seeded from the device locale so the very first extraction is already localized; the
-            // stored app-language/region preference takes over as soon as it loads below.
+            // Seeded from the device locale so the very first extraction is already localized
             val localization = newPipeLocalization(Locale.getDefault().toLanguageTag())
             NewPipe.init(
                 NewPipeDownloader.getInstance(this),
@@ -115,7 +127,6 @@ class FlowApplication :
             YoutubeStreamExtractor.setPoTokenProvider(NewPipePoTokenProvider)
             Log.d(TAG, "NewPipe initialized with ${localization.localizationCode}")
         } catch (e: Exception) {
-            // Log error but don't crash the app
             Log.e(TAG, "Failed to initialize NewPipe", e)
         }
 
@@ -129,19 +140,9 @@ class FlowApplication :
 
         PipePipeNsigDecoder.initialize(this)
 
-        // Initialize notification channels
+        // Initialize notification channels (Aman untuk Android 7 karena NotificationHelper biasanya sudah mengecek Build.VERSION)
         NotificationHelper.createNotificationChannels(this)
         Log.d(TAG, "Notification channels created")
-
-        /*
-        try {
-            // Initialize YoutubeDL
-            com.yausername.youtubedl_android.YoutubeDL.getInstance().init(this)
-            Log.d(TAG, "YoutubeDL initialized")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize YoutubeDL", e)
-        }
-         */
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             BackgroundCheckScheduler.follow(this@FlowApplication, playerPreferences)
@@ -231,7 +232,6 @@ class FlowApplication :
                 val youtubeRepository = YouTubeRepository.getInstance(playerPreferences)
                 val repaired =
                     repository.repairVideoThumbnailSubscriptions { channelId ->
-                        // Startup's own fetches hold the InnerTube connections for a while; nothing waits on this.
                         withTimeoutOrNull(20_000L) {
                             youtubeRepository.fetchChannelAvatarById(channelId)
                         }.orEmpty()
@@ -247,9 +247,9 @@ class FlowApplication :
 
     private fun applyProxyConfig(
         config: io.github.aedev.flow.network.AppProxyConfig,
-        vpnActive: Boolean,
+        vpnState: Boolean,
     ) {
-        AppProxyManager.update(config, vpnActive)
+        AppProxyManager.update(config, vpnState)
         YouTube.proxy = AppProxyManager.currentProxy()
         YouTube.proxyAuth = AppProxyManager.currentHttpProxyAuthorizationHeader()
     }
@@ -257,7 +257,6 @@ class FlowApplication :
     override fun onTerminate() {
         DiscordPresenceRuntime.shutdown()
         super.onTerminate()
-        // Clean up performance dispatcher resources
         PerformanceDispatcher.shutdown()
     }
 
