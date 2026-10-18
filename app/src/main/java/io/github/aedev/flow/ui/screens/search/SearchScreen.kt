@@ -7,8 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
@@ -23,7 +22,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.focus.*
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.*
@@ -34,7 +32,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.*
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -46,17 +43,12 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.compose.AsyncImage
 import io.github.aedev.flow.R
 import io.github.aedev.flow.data.local.*
-import io.github.aedev.flow.data.local.ContentType
-import io.github.aedev.flow.data.local.SearchFilter
-import io.github.aedev.flow.data.local.SearchHistoryItem
 import io.github.aedev.flow.data.model.*
 import io.github.aedev.flow.data.paging.SearchResultItem
 import io.github.aedev.flow.data.search.SearchSuggestionsService
 import io.github.aedev.flow.data.shorts.queue.ShortsQueueSource
 import io.github.aedev.flow.ui.components.*
-import io.github.aedev.flow.utils.formatDuration
 import io.github.aedev.flow.utils.formatSubscriberCount
-import io.github.aedev.flow.utils.formatViewCount
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -73,11 +65,7 @@ fun SearchScreen(
 ) {
     val context = LocalContext.current
     val searchHistoryRepo = remember { SearchHistoryRepository(context) }
-    val preferences =
-        remember {
-            io.github.aedev.flow.data.local
-                .PlayerPreferences(context)
-        }
+    val preferences = remember { PlayerPreferences(context) }
     val uiState by viewModel.uiState.collectAsState()
 
     var searchQuery by rememberSaveable(stateSaver = TextFieldValue.Saver) {
@@ -95,15 +83,10 @@ fun SearchScreen(
     var hasPerformedSearch by rememberSaveable { mutableStateOf(false) }
     var isNavigatingAway by remember { mutableStateOf(false) }
 
-    val searchHistory by searchHistoryRepo
-        .getSearchHistoryFlow()
-        .collectAsState(initial = emptyList())
-    val suggestionsEnabled by searchHistoryRepo
-        .isSearchSuggestionsEnabledFlow()
-        .collectAsState(initial = true)
+    val searchHistory by searchHistoryRepo.getSearchHistoryFlow().collectAsState(initial = emptyList())
+    val suggestionsEnabled by searchHistoryRepo.isSearchSuggestionsEnabledFlow().collectAsState(initial = true)
     val pagingItems = viewModel.searchResults.collectAsLazyPagingItems()
 
-    val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
@@ -112,6 +95,7 @@ fun SearchScreen(
 
     var liveSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var isLoadingSuggestions by remember { mutableStateOf(false) }
+
     val matchingHistorySuggestions =
         remember(searchHistory, searchQuery.text) {
             val queryText = searchQuery.text.trim()
@@ -131,6 +115,7 @@ fun SearchScreen(
                 (prefixMatches + containsMatches).take(5)
             }
         }
+
     val orderedSuggestions =
         remember(matchingHistorySuggestions, liveSuggestions) {
             (matchingHistorySuggestions + liveSuggestions)
@@ -171,6 +156,7 @@ fun SearchScreen(
                 }
             }
         }
+
     val launchVoiceSearch: () -> Unit = {
         val intent =
             android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -341,7 +327,6 @@ fun SearchScreen(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
 
-        // Perilaku sugesti aman dan normal di Android 7
         if (isSearchFocused && searchQuery.text.isNotEmpty() && (orderedSuggestions.isNotEmpty() || isLoadingSuggestions)) {
             SuggestionsCard(
                 query = searchQuery.text,
@@ -421,10 +406,8 @@ fun SearchScreen(
                     },
                 )
 
-                val isInitialLoading =
-                    pagingItems.loadState.refresh is LoadState.Loading
-                val isInitialError =
-                    pagingItems.loadState.refresh is LoadState.Error && pagingItems.itemCount == 0
+                val isInitialLoading = pagingItems.loadState.refresh is LoadState.Loading
+                val isInitialError = pagingItems.loadState.refresh is LoadState.Error && pagingItems.itemCount == 0
 
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                     val responsiveColumns =
@@ -451,8 +434,7 @@ fun SearchScreen(
                         }
 
                         isInitialError -> {
-                            val err =
-                                (pagingItems.loadState.refresh as LoadState.Error).error
+                            val err = (pagingItems.loadState.refresh as LoadState.Error).error
                             SearchErrorState(
                                 message = err.localizedMessage ?: stringResource(R.string.search_failed),
                                 onRetry = pagingItems::retry,
@@ -568,10 +550,7 @@ private fun SearchBarRow(
                                         primary.copy(alpha = focusAnim * 0.9f),
                                     ),
                                 ),
-                            cornerRadius =
-                                androidx.compose.ui.geometry.CornerRadius(
-                                    23.dp.toPx(),
-                                ),
+                            cornerRadius = CornerRadius(23.dp.toPx()),
                             style = Stroke(width = (2.5f * focusAnim).dp.toPx()),
                         )
                     }
@@ -585,11 +564,7 @@ private fun SearchBarRow(
                     shape = RoundedCornerShape(23.dp),
                 ).clickable(
                     indication = null,
-                    interactionSource =
-                        remember {
-                            androidx.compose.foundation.interaction
-                                .MutableInteractionSource()
-                        },
+                    interactionSource = remember { MutableInteractionSource() },
                 ) {
                     focusRequester.requestFocus()
                     keyboardController?.show()
@@ -605,12 +580,7 @@ private fun SearchBarRow(
             Icon(
                 Icons.Outlined.Search,
                 contentDescription = null,
-                tint =
-                    if (isSearchFocused) {
-                        primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                tint = if (isSearchFocused) primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -646,10 +616,7 @@ private fun SearchBarRow(
                             Text(
                                 stringResource(R.string.search_videos_channels_placeholder),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color =
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                        alpha = 0.55f,
-                                    ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                                 fontSize = 16.sp,
                             )
                         }
@@ -718,7 +685,8 @@ private fun SearchFiltersBar(
             ContentType.CHANNELS to R.string.channels_header,
             ContentType.PLAYLISTS to R.string.tab_playlists,
             ContentType.LIVE to R.string.tab_live,
-        ).filterNot { (type, _) -> type == ContentType.SHORTS && !shortsEnabled }
+        ).filterNot { pair -> pair.first == ContentType.SHORTS && !shortsEnabled }
+
     val durationLabels =
         listOf(
             Duration.ANY to R.string.duration_any,
@@ -761,7 +729,8 @@ private fun SearchFiltersBar(
                         selected = selectedContentType != ContentType.ALL,
                         onClick = { typeExpanded = true },
                         label = {
-                            Text(stringResource(typeLabels.first { it.first == selectedContentType }.second))
+                            val labelRes = typeLabels.firstOrNull { it.first == selectedContentType }?.second ?: R.string.search_filter_all
+                            Text(stringResource(labelRes))
                         },
                         leadingIcon = {
                             Icon(Icons.Default.FilterList, null, Modifier.size(16.dp))
@@ -774,7 +743,9 @@ private fun SearchFiltersBar(
                         expanded = typeExpanded,
                         onDismissRequest = { typeExpanded = false },
                     ) {
-                        typeLabels.forEach { (type, labelRes) ->
+                        typeLabels.forEach { pair ->
+                            val type = pair.first
+                            val labelRes = pair.second
                             DropdownMenuItem(
                                 text = { Text(stringResource(labelRes)) },
                                 leadingIcon =
@@ -801,7 +772,8 @@ private fun SearchFiltersBar(
                             selected = selectedDuration != Duration.ANY,
                             onClick = { durationExpanded = true },
                             label = {
-                                Text(stringResource(durationLabels.first { it.first == selectedDuration }.second))
+                                val labelRes = durationLabels.firstOrNull { it.first == selectedDuration }?.second ?: R.string.duration_any
+                                Text(stringResource(labelRes))
                             },
                             trailingIcon = {
                                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
@@ -811,7 +783,9 @@ private fun SearchFiltersBar(
                             expanded = durationExpanded,
                             onDismissRequest = { durationExpanded = false },
                         ) {
-                            durationLabels.forEach { (dur, labelRes) ->
+                            durationLabels.forEach { pair ->
+                                val dur = pair.first
+                                val labelRes = pair.second
                                 DropdownMenuItem(
                                     text = { Text(stringResource(labelRes)) },
                                     leadingIcon =
@@ -837,7 +811,8 @@ private fun SearchFiltersBar(
                             selected = selectedUploadDate != UploadDate.ANY,
                             onClick = { dateExpanded = true },
                             label = {
-                                Text(stringResource(uploadDateLabels.first { it.first == selectedUploadDate }.second))
+                                val labelRes = uploadDateLabels.firstOrNull { it.first == selectedUploadDate }?.second ?: R.string.date_any
+                                Text(stringResource(labelRes))
                             },
                             trailingIcon = {
                                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
@@ -847,7 +822,9 @@ private fun SearchFiltersBar(
                             expanded = dateExpanded,
                             onDismissRequest = { dateExpanded = false },
                         ) {
-                            uploadDateLabels.forEach { (date, labelRes) ->
+                            uploadDateLabels.forEach { pair ->
+                                val date = pair.first
+                                val labelRes = pair.second
                                 DropdownMenuItem(
                                     text = { Text(stringResource(labelRes)) },
                                     leadingIcon =
@@ -872,7 +849,8 @@ private fun SearchFiltersBar(
                             selected = selectedSortType != SortType.RELEVANCE,
                             onClick = { sortExpanded = true },
                             label = {
-                                Text(stringResource(sortTypeLabels.first { it.first == selectedSortType }.second))
+                                val labelRes = sortTypeLabels.firstOrNull { it.first == selectedSortType }?.second ?: R.string.sort_relevance
+                                Text(stringResource(labelRes))
                             },
                             trailingIcon = {
                                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
@@ -882,7 +860,9 @@ private fun SearchFiltersBar(
                             expanded = sortExpanded,
                             onDismissRequest = { sortExpanded = false },
                         ) {
-                            sortTypeLabels.forEach { (sort, labelRes) ->
+                            sortTypeLabels.forEach { pair ->
+                                val sort = pair.first
+                                val labelRes = pair.second
                                 DropdownMenuItem(
                                     text = { Text(stringResource(labelRes)) },
                                     leadingIcon =
@@ -909,24 +889,14 @@ private fun SearchFiltersBar(
                     .padding(start = 2.dp, end = 6.dp)
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (isGridMode) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            Color.Transparent
-                        },
-                    ).clickable(onClick = onToggleGridMode),
+                    .background(if (isGridMode) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .clickable(onClick = onToggleGridMode),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 if (isGridMode) Icons.Outlined.ViewList else Icons.Outlined.GridView,
                 contentDescription = stringResource(R.string.search_toggle_view_mode),
-                tint =
-                    if (isGridMode) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                tint = if (isGridMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -978,10 +948,7 @@ private fun SearchResultList(
                     if (!isSearchFocused) return@pointerInput
                     awaitPointerEventScope {
                         while (true) {
-                            val event =
-                                awaitPointerEvent(
-                                    pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial,
-                                )
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                             if (event.changes.any { it.pressed }) {
                                 dismissKeyboard()
                                 break
@@ -989,21 +956,9 @@ private fun SearchResultList(
                         }
                     }
                 },
-        contentPadding =
-            PaddingValues(
-                start = if (columns == 1) 0.dp else 16.dp,
-                end = if (columns == 1) 0.dp else 16.dp,
-                top = 8.dp,
-                bottom = 90.dp,
-            ),
-        horizontalArrangement =
-            Arrangement.spacedBy(
-                if (columns == 1) 0.dp else 12.dp,
-            ),
-        verticalArrangement =
-            Arrangement.spacedBy(
-                if (columns == 1) 0.dp else 12.dp,
-            ),
+        contentPadding = PaddingValues(start = if (columns == 1) 0.dp else 16.dp, end = if (columns == 1) 0.dp else 16.dp, top = 8.dp, bottom = 90.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (columns == 1) 0.dp else 12.dp),
+        verticalArrangement = Arrangement.spacedBy(if (columns == 1) 0.dp else 12.dp),
     ) {
         items(
             count = pagingItems.itemCount,
@@ -1028,9 +983,7 @@ private fun SearchResultList(
                                 Channel(
                                     id = channelId,
                                     name = item.video.channelName,
-                                    thumbnailUrl =
-                                        item.video.channelThumbnailUrl
-                                            ?: "",
+                                    thumbnailUrl = item.video.channelThumbnailUrl ?: "",
                                     subscriberCount = 0,
                                     url = "https://www.youtube.com/channel/$channelId",
                                 ),
@@ -1040,39 +993,23 @@ private fun SearchResultList(
                 }
 
                 is SearchResultItem.ChannelResult -> {
-                    SearchChannelCard(
-                        item.channel,
-                        onClick = {
-                            onChannelClick(item.channel)
-                        },
-                    )
+                    SearchChannelCard(item.channel, onClick = { onChannelClick(item.channel) })
                 }
 
                 is SearchResultItem.PlaylistResult -> {
-                    PlaylistCard(
-                        item.playlist,
-                        onClick = {
-                            onPlaylistClick(item.playlist)
-                        },
-                    )
+                    PlaylistCard(item.playlist, onClick = { onPlaylistClick(item.playlist) })
                 }
 
                 is SearchResultItem.ShortsShelfResult -> {
                     ShortsShelf(shorts = item.shorts, onShortClick = onShortsShelfClick)
                 }
 
-                null -> {
-                    Unit
-                }
+                null -> {}
             }
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
-            PagingFooter(
-                pagingItems.loadState.append,
-                pagingItems::retry,
-                pagingItems.itemCount,
-            )
+            PagingFooter(pagingItems.loadState.append, pagingItems::retry, pagingItems.itemCount)
         }
     }
 }
@@ -1099,10 +1036,7 @@ private fun SearchResultGrid(
                     if (!isSearchFocused) return@pointerInput
                     awaitPointerEventScope {
                         while (true) {
-                            val event =
-                                awaitPointerEvent(
-                                    pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial,
-                                )
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                             if (event.changes.any { it.pressed }) {
                                 dismissKeyboard()
                                 break
@@ -1126,22 +1060,17 @@ private fun SearchResultGrid(
                 }
             },
         ) { i ->
-            val item = pagingItems[i] ?: return@items
-            when (item) {
+            when (val item = pagingItems[i]) {
                 is SearchResultItem.VideoResult -> {
                     CompactVideoCard(
                         video = item.video,
-                        onClick = {
-                            onVideoClick(item.video)
-                        },
+                        onClick = { onVideoClick(item.video) },
                         onChannelClick = { channelId ->
                             onChannelClick(
                                 Channel(
                                     id = channelId,
                                     name = item.video.channelName,
-                                    thumbnailUrl =
-                                        item.video.channelThumbnailUrl
-                                            ?: "",
+                                    thumbnailUrl = item.video.channelThumbnailUrl ?: "",
                                     subscriberCount = 0,
                                     url = "https://www.youtube.com/channel/$channelId",
                                 ),
@@ -1151,35 +1080,23 @@ private fun SearchResultGrid(
                 }
 
                 is SearchResultItem.ChannelResult -> {
-                    SearchChannelCardCompact(
-                        item.channel,
-                        onClick = {
-                            onChannelClick(item.channel)
-                        },
-                    )
+                    SearchChannelCardCompact(item.channel, onClick = { onChannelClick(item.channel) })
                 }
 
                 is SearchResultItem.PlaylistResult -> {
-                    SearchPlaylistCardCompact(
-                        item.playlist,
-                        onClick = {
-                            onPlaylistClick(item.playlist)
-                        },
-                    )
+                    SearchPlaylistCardCompact(item.playlist, onClick = { onPlaylistClick(item.playlist) })
                 }
 
                 is SearchResultItem.ShortsShelfResult -> {
                     ShortsShelf(shorts = item.shorts, onShortClick = onShortsShelfClick)
                 }
+
+                null -> {}
             }
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
-            PagingFooter(
-                pagingItems.loadState.append,
-                pagingItems::retry,
-                pagingItems.itemCount,
-            )
+            PagingFooter(pagingItems.loadState.append, pagingItems::retry, pagingItems.itemCount)
         }
     }
 }
@@ -1208,10 +1125,7 @@ private fun SearchShortsGrid(
                     if (!isSearchFocused) return@pointerInput
                     awaitPointerEventScope {
                         while (true) {
-                            val event =
-                                awaitPointerEvent(
-                                    pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial,
-                                )
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                             if (event.changes.any { it.pressed }) {
                                 dismissKeyboard()
                                 break
@@ -1238,11 +1152,7 @@ private fun SearchShortsGrid(
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
-            PagingFooter(
-                pagingItems.loadState.append,
-                pagingItems::retry,
-                pagingItems.itemCount,
-            )
+            PagingFooter(pagingItems.loadState.append, pagingItems::retry, pagingItems.itemCount)
         }
     }
 }
@@ -1304,10 +1214,7 @@ private fun PagingFooter(
                     Text(
                         stringResource(R.string.end_of_results),
                         style = MaterialTheme.typography.bodySmall,
-                        color =
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                alpha = 0.5f,
-                            ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     )
                     HorizontalDivider(Modifier.weight(1f))
                 }
@@ -1335,21 +1242,9 @@ private fun ShimmerResultsScreen(
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
             modifier = Modifier.fillMaxSize(),
-            contentPadding =
-                PaddingValues(
-                    start = if (columns == 1) 0.dp else 16.dp,
-                    end = if (columns == 1) 0.dp else 16.dp,
-                    top = 8.dp,
-                    bottom = 80.dp,
-                ),
-            horizontalArrangement =
-                Arrangement.spacedBy(
-                    if (columns == 1) 0.dp else 12.dp,
-                ),
-            verticalArrangement =
-                Arrangement.spacedBy(
-                    if (columns == 1) 0.dp else 12.dp,
-                ),
+            contentPadding = PaddingValues(start = if (columns == 1) 0.dp else 16.dp, end = if (columns == 1) 0.dp else 16.dp, top = 8.dp, bottom = 80.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (columns == 1) 0.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (columns == 1) 0.dp else 12.dp),
         ) {
             items(8, key = { "shimmer_$it" }, contentType = { "shimmer" }) {
                 if (columns == 1) {
@@ -1362,26 +1257,27 @@ private fun ShimmerResultsScreen(
     }
 }
 
-// Komponen Shimmer mandiri untuk mencegah error Unresolved reference
 @Composable
 private fun ShimmerGridVideoCard() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
     )
 }
 
 @Composable
 private fun ShimmerVideoCardFullWidth() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(100.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(100.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
     )
 }
 
@@ -1428,9 +1324,7 @@ private fun DiscoverScreen(
                 )
             }
             item {
-                HorizontalDivider(
-                    Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                )
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             }
         }
 
@@ -1448,19 +1342,13 @@ private fun DiscoverScreen(
                             Icons.Outlined.Search,
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
-                            tint =
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                    alpha = 0.2f,
-                                ),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
                             stringResource(R.string.search_empty_prompt),
                             style = MaterialTheme.typography.bodyLarge,
-                            color =
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                    alpha = 0.6f,
-                                ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         )
                     }
                 }
@@ -1486,11 +1374,7 @@ private fun HistoryRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (item.type == SearchType.VOICE) {
-                Icons.Filled.Mic
-            } else {
-                Icons.Filled.History
-            },
+            if (item.type == SearchType.VOICE) Icons.Filled.Mic else Icons.Filled.History,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),
@@ -1532,24 +1416,13 @@ private fun SuggestionsCard(
         LazyColumn(Modifier.heightIn(max = 300.dp)) {
             if (isLoading && suggestions.isEmpty()) {
                 item {
-                    Box(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
+                    Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     }
                 }
             }
             items(suggestions, key = { it }) { s ->
-                SuggestionRow(
-                    s,
-                    query,
-                    { onSuggestionClick(s) },
-                    { onFillClick(s) },
-                )
+                SuggestionRow(s, query, { onSuggestionClick(s) }, { onFillClick(s) })
             }
         }
     }
@@ -1583,15 +1456,8 @@ private fun SuggestionRow(
                 val idx = suggestion.indexOf(query, ignoreCase = true)
                 if (idx >= 0) {
                     append(suggestion.substring(0, idx))
-                    withStyle(
-                        SpanStyle(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                    ) {
-                        append(
-                            suggestion.substring(idx, idx + query.length),
-                        )
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)) {
+                        append(suggestion.substring(idx, idx + query.length))
                     }
                     append(suggestion.substring(idx + query.length))
                 } else {
@@ -1644,13 +1510,7 @@ private fun SearchChannelCard(
                     Modifier
                         .size(72.dp)
                         .background(
-                            Brush.sweepGradient(
-                                listOf(
-                                    primary,
-                                    primary.copy(0.3f),
-                                    primary,
-                                ),
-                            ),
+                            Brush.sweepGradient(listOf(primary, primary.copy(0.3f), primary)),
                             CircleShape,
                         ),
                 )
@@ -1676,10 +1536,7 @@ private fun SearchChannelCard(
                 if (channel.subscriberCount > 0) {
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        stringResource(
-                            R.string.subscribers_count_template,
-                            formatSubscriberCount(channel.subscriberCount),
-                        ),
+                        stringResource(R.string.subscribers_count_template, formatSubscriberCount(channel.subscriberCount)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1715,9 +1572,8 @@ private fun SearchChannelCardCompact(
         modifier =
             modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(0.35f),
-                ).clickable(onClick = onClick)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(0.35f))
+                .clickable(onClick = onClick)
                 .padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
