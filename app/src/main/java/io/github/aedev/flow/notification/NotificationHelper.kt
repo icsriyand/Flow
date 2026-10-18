@@ -31,7 +31,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import java.net.URL
 
 /**
  * Comprehensive notification helper for the app
@@ -67,6 +66,17 @@ object NotificationHelper {
     private var channelsCreated = false
 
     /**
+     * Helper aman untuk flag PendingIntent di berbagai versi Android.
+     * Android 7 mendukung IMMUTABLE, tetapi untuk kompatibilitas keamanannya ditangani dengan aman.
+     */
+    private val pendingIntentFlagImmutable: Int
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
+    /**
      * Store notification in database
      */
     private suspend fun storeNotification(
@@ -90,6 +100,8 @@ object NotificationHelper {
     fun createNotificationChannels(context: Context) {
         if (channelsCreated) return
 
+        // PENTING: NotificationChannel hanya ada di Android 8.0 (Oreo / API 26) ke atas.
+        // Di Android 7 (API 24), pemanggilan ini akan di-skip agar tidak terjadi Crash (VerifyError/NoSuchMethodError).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -201,9 +213,9 @@ object NotificationHelper {
                     importsChannel,
                 ),
             )
-
-            channelsCreated = true
         }
+
+        channelsCreated = true
     }
 
     /**
@@ -226,10 +238,6 @@ object NotificationHelper {
 
     // ========== IMPORT NOTIFICATIONS ==========
 
-    /**
-     * Show (or update) the import-in-progress notification.
-     * When total == 0 the progress bar is indeterminate.
-     */
     fun showImportProgress(
         context: Context,
         label: String,
@@ -237,7 +245,7 @@ object NotificationHelper {
         total: Int,
     ) {
         if (!hasNotificationPermission(context)) return
-        val contentText = if (total > 0) "$current / $total" else "Starting…"
+        val contentText = if (total > 0) "$current / $total" else "Startingâ€¦"
         val builder =
             NotificationCompat
                 .Builder(context, CHANNEL_IMPORTS)
@@ -257,7 +265,6 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(NOTIFICATION_IMPORT_PROGRESS, builder.build())
     }
 
-    /** Replace the progress notification with a one-shot completion notification. */
     fun showImportComplete(
         context: Context,
         label: String,
@@ -265,7 +272,6 @@ object NotificationHelper {
         message: String? = null,
     ) {
         if (!hasNotificationPermission(context)) return
-        // cancel progress first
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_IMPORT_PROGRESS)
         val builder =
             NotificationCompat
@@ -278,16 +284,12 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(NOTIFICATION_IMPORT_COMPLETE, builder.build())
     }
 
-    /** Cancel the ongoing import progress notification (e.g. on error). */
     fun cancelImportNotification(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_IMPORT_PROGRESS)
     }
 
     // ========== DOWNLOAD NOTIFICATIONS ==========
 
-    /**
-     * Show download progress notification
-     */
     fun showDownloadProgress(
         context: Context,
         videoTitle: String,
@@ -310,12 +312,12 @@ object NotificationHelper {
                 context,
                 notificationId,
                 cancelIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val contentText =
             if (downloadSpeed != null) {
-                "$progress% • $downloadSpeed"
+                "$progress% â€¢ $downloadSpeed"
             } else {
                 "$progress%"
             }
@@ -343,9 +345,6 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
 
-    /**
-     * Show download complete notification
-     */
     suspend fun showDownloadComplete(
         context: Context,
         videoTitle: String,
@@ -356,7 +355,6 @@ object NotificationHelper {
         if (!hasNotificationPermission(context)) return
         if (!PlayerPreferences(context).notifDownloadsEnabled.first()) return
 
-        // Intent to open the downloaded file or app
         val openIntent =
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -367,7 +365,7 @@ object NotificationHelper {
                 context,
                 notificationId,
                 openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val builder =
@@ -381,10 +379,8 @@ object NotificationHelper {
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
 
-        // Cancel progress notification
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_DOWNLOAD_PROGRESS)
 
-        // Load thumbnail if provided
         if (!thumbnailUrl.isNullOrEmpty()) {
             val bitmap = getBitmapFromUrl(context, thumbnailUrl)
             if (bitmap != null) {
@@ -395,9 +391,6 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
 
-    /**
-     * Show download failed notification
-     */
     fun showDownloadFailed(
         context: Context,
         videoTitle: String,
@@ -407,7 +400,6 @@ object NotificationHelper {
         if (!hasNotificationPermission(context)) return
         if (!runBlocking { PlayerPreferences(context).notifDownloadsEnabled.first() }) return
 
-        // Intent to retry download
         val retryIntent =
             Intent(context, NotificationActionReceiver::class.java).apply {
                 action = NotificationActionReceiver.ACTION_RETRY_DOWNLOAD
@@ -418,7 +410,7 @@ object NotificationHelper {
                 context,
                 notificationId,
                 retryIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val notification =
@@ -440,16 +432,12 @@ object NotificationHelper {
                 .setCategory(NotificationCompat.CATEGORY_ERROR)
                 .build()
 
-        // Cancel progress notification
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_DOWNLOAD_PROGRESS)
         NotificationManagerCompat.from(context).notify(notificationId, notification)
     }
 
     // ========== SUBSCRIPTION NOTIFICATIONS ==========
 
-    /**
-     * Represents a single new video found during a subscription check cycle.
-     */
     data class NewVideoEntry(
         val channelName: String,
         val videoTitle: String,
@@ -457,9 +445,6 @@ object NotificationHelper {
         val thumbnailUrl: String?,
     )
 
-    /**
-     * Dispatcher for subscription update notifications.
-     */
     suspend fun showSubscriptionUpdates(
         context: Context,
         videos: List<NewVideoEntry>,
@@ -498,7 +483,7 @@ object NotificationHelper {
                     context,
                     notifId,
                     watchIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    pendingIntentFlagImmutable,
                 )
             val builder =
                 NotificationCompat
@@ -533,7 +518,7 @@ object NotificationHelper {
                 context,
                 NOTIFICATION_NEW_VIDEO_SUMMARY,
                 summaryIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
         val inboxStyle =
             NotificationCompat
@@ -577,9 +562,6 @@ object NotificationHelper {
         manager.notify(NOTIFICATION_NEW_VIDEO_SUMMARY, summaryNotification)
     }
 
-    /**
-     * Show notification for new video from subscribed channel
-     */
     suspend fun showNewVideoNotification(
         context: Context,
         channelName: String,
@@ -591,7 +573,6 @@ object NotificationHelper {
         if (!hasNotificationPermission(context)) return
         if (!PlayerPreferences(context).notifNewVideosEnabled.first()) return
 
-        // Save to database
         storeNotification(
             context,
             NotificationEntity(
@@ -603,10 +584,8 @@ object NotificationHelper {
             ),
         )
 
-        // Generate unique notification ID based on video ID
         val notificationId = NOTIFICATION_NEW_VIDEO + videoId.hashCode().and(0xFFFF)
 
-        // Intent to open the video
         val watchIntent =
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -619,7 +598,7 @@ object NotificationHelper {
                 context,
                 notificationId,
                 watchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val builder =
@@ -634,7 +613,6 @@ object NotificationHelper {
                 .setCategory(NotificationCompat.CATEGORY_SOCIAL)
                 .setGroup("new_videos")
 
-        // Try to load thumbnail
         thumbnailUrl?.let { url ->
             val bitmap = getBitmapFromUrl(context, url, followThumbnailSetting = true)
             bitmap?.let {
@@ -651,9 +629,6 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
 
-    /**
-     * Show grouped notification summary for multiple new videos
-     */
     fun showNewVideosSummary(
         context: Context,
         videoCount: Int,
@@ -683,9 +658,6 @@ object NotificationHelper {
 
     // ========== UPDATE NOTIFICATIONS ==========
 
-    /**
-     * Show notification for new app update
-     */
     fun showUpdateNotification(
         context: Context,
         release: AppRelease,
@@ -704,7 +676,7 @@ object NotificationHelper {
                 context,
                 0,
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val notification =
@@ -724,9 +696,6 @@ object NotificationHelper {
 
     // ========== GENERAL NOTIFICATIONS ==========
 
-    /**
-     * Show a simple notification
-     */
     fun showSimpleNotification(
         context: Context,
         title: String,
@@ -745,7 +714,7 @@ object NotificationHelper {
                 context,
                 notificationId,
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val notification =
@@ -762,9 +731,6 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(notificationId, notification)
     }
 
-    /**
-     * Show watch later reminder notification
-     */
     fun showWatchLaterReminder(
         context: Context,
         videoTitle: String,
@@ -786,7 +752,7 @@ object NotificationHelper {
                 context,
                 notificationId,
                 watchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val notification =
@@ -805,9 +771,6 @@ object NotificationHelper {
 
     // ========== UTILITY FUNCTIONS ==========
 
-    /**
-     * Cancel a specific notification
-     */
     fun cancelNotification(
         context: Context,
         notificationId: Int,
@@ -815,9 +778,6 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).cancel(notificationId)
     }
 
-    /**
-     * Show reminder notification (Bedtime, Take a break)
-     */
     fun showReminderNotification(
         context: Context,
         title: String,
@@ -836,7 +796,7 @@ object NotificationHelper {
                 context,
                 0,
                 intent,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0,
+                pendingIntentFlagImmutable,
             )
 
         val builder =
@@ -854,7 +814,6 @@ object NotificationHelper {
                 notify(NOTIFICATION_REMINDER, builder.build())
             }
         } catch (e: SecurityException) {
-            // Should be covered by hasNotificationPermission check, but safety first
             e.printStackTrace()
         }
     }
@@ -880,7 +839,7 @@ object NotificationHelper {
                 context,
                 videoId.hashCode(),
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                pendingIntentFlagImmutable,
             )
 
         val liveText = context.getString(R.string.notification_channel_live, channelName, title)
@@ -911,23 +870,10 @@ object NotificationHelper {
         }
     }
 
-    /**
-     * Cancel all notifications
-     */
     fun cancelAllNotifications(context: Context) {
         NotificationManagerCompat.from(context).cancelAll()
     }
 
-    /**
-     * Load bitmap from URL for notification large icon/picture.
-     *
-     * Uses the app's shared Coil ImageLoader so notification artwork reuses the memory/disk
-     * cache the feed already populated instead of refetching through a second image stack.
-     * Hardware bitmaps are disabled because notification bitmaps must be parcelable to
-     * SystemUI, and INEXACT precision keeps the "never upscale" behaviour of the previous
-     * centerInside/onlyScaleDown request. With [followThumbnailSetting], a viewer who turned
-     * thumbnails off gets one only if it is already cached.
-     */
     suspend fun getBitmapFromUrl(
         context: Context,
         url: String,
