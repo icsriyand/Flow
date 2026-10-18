@@ -341,7 +341,7 @@ fun SearchScreen(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
 
-        // Perilaku sugesti dikembalikan normal (hanya tampil jika fokus dan teks tidak kosong)
+        // Perilaku sugesti aman dan normal di Android 7
         if (isSearchFocused && searchQuery.text.isNotEmpty() && (orderedSuggestions.isNotEmpty() || isLoadingSuggestions)) {
             SuggestionsCard(
                 query = searchQuery.text,
@@ -1360,6 +1360,29 @@ private fun ShimmerResultsScreen(
             }
         }
     }
+}
+
+// Komponen Shimmer mandiri untuk mencegah error Unresolved reference
+@Composable
+private fun ShimmerGridVideoCard() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+    )
+}
+
+@Composable
+private fun ShimmerVideoCardFullWidth() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(100.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+    )
 }
 
 @Composable
