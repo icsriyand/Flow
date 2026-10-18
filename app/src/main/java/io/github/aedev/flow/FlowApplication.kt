@@ -5,7 +5,6 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Build
 import android.util.Log
-import androidx.appcompat.app.AppCompatDelegate
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -92,11 +91,6 @@ class FlowApplication :
         super.onCreate()
         appContext = applicationContext
 
-        // PENTING: Untuk Android 7 (API 24), VectorDrawable di dalam XML terkadang butuh compatibility flag dinyalakan
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
-            AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)
-        }
-
         YouTube.cacheDirectory = cacheDir.resolve("innertube_http_cache")
 
         DiscordPresenceRuntime.initialize(this, okHttpClient)
@@ -140,7 +134,7 @@ class FlowApplication :
 
         PipePipeNsigDecoder.initialize(this)
 
-        // Initialize notification channels (Aman untuk Android 7 karena NotificationHelper biasanya sudah mengecek Build.VERSION)
+        // Initialize notification channels
         NotificationHelper.createNotificationChannels(this)
         Log.d(TAG, "Notification channels created")
 
