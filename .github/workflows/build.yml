@@ -1,4 +1,4 @@
-name: Build & Release (ARMv7 Only)
+name: Build & Release (ARMv7 Only - FOSS)
 
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build & Release ARMv7
+    name: Build & Release ARMv7 FOSS
     runs-on: ubuntu-latest
 
     steps:
@@ -43,18 +43,17 @@ jobs:
             echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > release.keystore
           fi
 
-      - name: Build Release APKs
-        run: ./gradlew :app:assembleGithubRelease :app:assembleFossRelease --parallel --build-cache
+      - name: Build FOSS Release APK
+        run: ./gradlew :app:assembleFossRelease --build-cache
         env:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Prepare ARMv7 APKs
+      - name: Prepare ARMv7 APK
         run: |
           mkdir -p release-apks
-          # Salin file APK ARMv7 GitHub & FOSS
-          cp app/build/outputs/apk/github/release/*armeabi-v7a*.apk release-apks/flow-armv7.apk
+          # Salin file APK ARMv7 FOSS saja
           cp app/build/outputs/apk/foss/release/*armeabi-v7a*.apk release-apks/flow-foss-armv7.apk
 
       # Menentukan nama tag otomatis jika dijalankan manual
